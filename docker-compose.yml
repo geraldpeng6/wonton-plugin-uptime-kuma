@@ -26,47 +26,39 @@ services:
 x-wonton:
   spec: "0.4"
   id: fyi.kuma.uptime-kuma
-  version: 0.1.0
+  version: 0.1.1
   kind: app
-  title: { zh: 在线监控, en: Uptime Kuma }
-  description: { zh: 监控网站和服务是否在线，掉线时告警, en: Watch your sites and services for downtime and alert when they go dark }
+  title: { en: Uptime Kuma }
+  description: { zh: 盯着你的网站和服务，掉线时提醒你, en: Watch your sites and services and get alerted when they go down }
   icon: icon.png
   notices: [NOTICE]
-  category: network
   screenshots: [screenshots/monitors.png, screenshots/add-monitor.png, screenshots/monitor-detail.png, screenshots/notifications.png]
   author: { name: geraldpeng6, url: https://github.com/geraldpeng6 }
   homepage: https://uptime.kuma.pet
   license: MIT
-  tags: [监控, 拨测, uptime, 告警]
+  tags:
+    zh: [监控]
+    en: [Monitoring]
   about:
     zh: |
-      监控公网站点和局域网设备的在线状态，支持 HTTP(s)、TCP 端口、ping 和 DNS。掉线时通过 Uptime Kuma
-      自带的通知渠道告警，如邮件、Telegram、Webhook 和 Apprise。
+      盯着你的网站和服务，支持网址、端口、ping 和 DNS，掉线时通过邮件、Telegram、Webhook 等渠道提醒你。
 
-      第一次打开时选择数据库并创建管理员账号，保留应用登录。网页还受云吞网关的主人会话保护。
-
-      状态页和徽章仅供已登录的主人查看，不可公开分享。外部 Push 心跳会被网关拦截；其他插件的网页地址也要求
-      主人会话，不能直接用它们判断插件健康。通知不接入云吞 notify。
+      第一次打开时建管理员账号，之后用应用自己的登录。外部心跳推送会被拦下，状态页只给登录后的你看。
     en: |
-      Monitor public websites and LAN devices using HTTP(s), TCP ports, ping and DNS. Send downtime alerts
-      through Uptime Kuma's notification channels, including email, Telegram, webhooks and Apprise.
+      Watch your sites and services over HTTP(s), ports, ping and DNS, and get alerted by email, Telegram, webhook and more when they go down.
 
-      On first open, choose a database and create an administrator account. Keep application authentication
-      enabled; the web interface is also protected by the Wonton gateway's owner session.
-
-      Status pages and badges are visible only to the signed-in owner, not public visitors. The gateway
-      blocks external Push heartbeats. Other plugins' web addresses also require an owner session and
-      cannot directly indicate plugin health. Alerts do not use Wonton notify.
-  release_notes:
-    zh: 首个版本，使用官方 rootless 镜像，保留应用登录，支持主动监控与应用自带通知渠道。
-    en: First release with the official rootless image, application authentication, active monitoring and upstream notification channels.
+      Create an administrator account on first open and keep using the app's own login. External push heartbeats are blocked, and status pages are only visible to you when signed in.
+  release_notes: { zh: 名字和说明更新。, en: Product name and description update. }
   webui:
     service: kuma
     port: 3001
-    # Uptime Kuma 不支持 OIDC，也不认反向代理传来的用户名；sso: none 时网关仍先校验主人的会话才转发。
+    # Uptime Kuma 不支持 OIDC，也不认反向代理传来的用户名；sso: none 时网关仍先校验用户的会话才转发。
     sso: none
   permissions:
     # 拨测要访问外网和局域网里的设备；通知渠道（Telegram、SMTP、Webhook）也得出网。
+    # Checks reach the internet and LAN devices, and notification channels (Telegram, SMTP, webhook) need egress too.
     - network.egress
+  # 上游没写最低内存；本机空闲实测约 92M，取 256M。镜像支持 amd64 和 arm64（docker manifest inspect）。
   requirements:
     arch: [amd64, arm64]
+    memory: 256M

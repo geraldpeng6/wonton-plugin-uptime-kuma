@@ -1,4 +1,4 @@
-# Uptime Kuma：sso=none，主人第一次打开就是注册管理员页；清单没有 mcp。
+# Uptime Kuma：sso=none，用户第一次打开就是注册管理员页；清单没有 mcp。
 SSO=none
 MCP=0
 
