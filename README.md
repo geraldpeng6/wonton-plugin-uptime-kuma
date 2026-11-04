@@ -34,8 +34,29 @@ scripts/dev.sh install
 ```
 
 `up` 在本机起一套云吞，打印它的地址，如 `http://hello3f2a.wonton.localhost:21234/`。浏览器打开，用
-`scripts/dev.sh token` 输出的用户令牌登录。`install` 先列出插件要的权限，确认后装上，打印插件网页的地址；第一次打开是
-Kuma 的数据库设置页（选 SQLite），之后注册管理员。Chrome、Firefox 和 curl 把 `*.localhost` 直接解析到本机，不用改 hosts。
+`scripts/dev.sh token` 输出的用户令牌登录。`install` 先列出插件要的权限，确认后装上，打印插件网页的地址；第一次打开就是
+Kuma 的登录页，管理员账号已按你的用户名预建好（见下面的“管理员账号和密码”）。Chrome、Firefox 和 curl 把 `*.localhost`
+直接解析到本机，不用改 hosts。
+
+## 管理员账号和密码
+
+装好就用，不再有选数据库和注册管理员两步：
+
+- 数据库固定为 SQLite（compose 里的 `UPTIME_KUMA_DB_TYPE`），上游见到这个变量就跳过数据库设置页。
+- 管理员账号由一次性服务 `setup-admin` 预建：用镜像自带的 socket.io-client 调上游自己的 `setup` 事件，等价于在注册页提交
+  一次。用户名是云吞用户名（`owner.identity` 权限），密码是核心生成的 32 字节随机数（`secrets.admin_password`），升级和
+  保留数据的重装都不变。
+
+上游只认自己的登录，密码第一次登录要用。核心还没有在 App 里展示插件密钥的界面（规范把它列为待办），在装了插件的宿主机上
+取：
+
+```bash
+docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
+  "$(docker ps -aq --filter name=setup-admin)" | grep WONTON_SECRET_ADMIN_PASSWORD
+```
+
+登录后建议在 Kuma 的“设置 → 安全”里改成自己的密码。密码忘了：没改过就照上面再取一次；改过以后按 Kuma 自己的办法重置
+（在宿主机进容器执行它的 `npm run reset-password`）。
 
 ## 仓库里有什么
 
@@ -131,7 +152,7 @@ docker buildx imagetools inspect nginx:1.30.6-alpine
   `{email}` 和 `{secret:<名字>}`（插件密钥里由核心生成、至少 16 字节的一项，见第 8 步）；Cookie 的值只能用
   `{secret:…}` 和固定文字。网关先删掉客户端发来的同名请求头和 Cookie，客户端伪造不了；插件网络里只有核心和插件自己的
   服务，所以应用“信任的代理地址”可以放宽到整个网络。
-- `none`（默认）：网关只校验登录，应用保留自己的登录，或者本来就不需要登录。这个插件就是这样：第一次打开注册管理员。
+- `none`（默认）：网关只校验登录，应用保留自己的登录，或者本来就不需要登录。这个插件就是这样：管理员账号已预建，第一次打开就是登录页。
 
 ### 4. 数据
 
