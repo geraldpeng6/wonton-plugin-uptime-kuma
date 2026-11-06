@@ -1,6 +1,5 @@
+# shellcheck shell=bash
 # Uptime Kuma：sso=none，用户第一次打开就是注册管理员页；清单没有 mcp。
-SSO=none
-MCP=0
 
 web_assert() { grep -qi 'uptime kuma'; }   # 标准输入：应用页面
 
