@@ -27,6 +27,7 @@ services:
       start_interval: 2s
 
   # 一次性服务：调上游自己的事件预建主人的管理员账号并关掉应用自己的登录（disableAuth），
+  # 再预置一条发进云吞私聊的邮件通知（上游 2.5.9 没有发信的环境变量，通知只能走它自己的事件存库）。
   # 装完第一次打开直接可用，不需要记应用密码。用同一个官方镜像，脚本只用镜像自带的
   # socket.io-client（生产依赖）。成功后写标记文件，升级、重建时看到标记直接退出；已有账号
   # 且密码对不上（主人接管过）也不动它的设置。kuma 没监听时靠脚本里的自动重连等待，
@@ -38,6 +39,11 @@ services:
     environment:
       WONTON_OWNER_NAME: ${WONTON_OWNER_NAME:?核心没有注入用户名}
       WONTON_SECRET_ADMIN_PASSWORD: ${WONTON_SECRET_ADMIN_PASSWORD}
+      # 预置邮件通知用：SMTP 地址、发件人来自 notify 权限，收件人是主人的内部邮箱。
+      WONTON_SMTP_HOST: ${WONTON_SMTP_HOST:?核心没有注入 SMTP 服务器}
+      WONTON_SMTP_PORT: ${WONTON_SMTP_PORT:?核心没有注入 SMTP 端口}
+      WONTON_MAIL_FROM: ${WONTON_MAIL_FROM:?核心没有注入发件地址}
+      WONTON_OWNER_EMAIL: ${WONTON_OWNER_EMAIL:?核心没有注入内部邮箱}
     volumes:
       # 标记文件写在数据目录里；kuma 也挂这里，两边属主一致（1000:1000）。
       - ${WONTON_APP_DATA}:/app/data
@@ -54,9 +60,9 @@ configs:
     file: setup-admin.mjs
 
 x-wonton:
-  spec: "0.4"
+  spec: "0.11"
   id: fyi.kuma.uptime-kuma
-  version: 0.2.0
+  version: 0.3.0
   kind: app
   title: { en: Uptime Kuma }
   description: { zh: 盯着你的网站和服务，掉线时提醒你, en: Watch your sites and services and get alerted when they go down }
@@ -71,16 +77,16 @@ x-wonton:
     en: [Monitoring]
   about:
     zh: |
-      盯着你的网站和服务，支持网址、端口、ping 和 DNS，掉线时通过邮件、Telegram、Webhook 等渠道提醒你。
+      盯着你的网站和服务，支持网址、端口、ping 和 DNS，掉线时提醒你：已预置一条邮件通知，新建的监控默认把告警发进你的云吞私聊，Telegram、Webhook 等渠道也照常可加。
 
-      打开直接可用，不用登录应用本身：管理员账号已预建，应用自己的登录已关——网页只经云吞网关进来，网关已经认了你。外部心跳推送会被拦下，状态页只给登录了云吞的你看。
+      打开直接可用，不用登录应用本身：管理员账号已预建，应用自己的登录已关——网页只经云吞网关进来，网关已经认了你。邮件通知的收件人只能是家里人，改成外部邮箱会发送失败（应用报发送失败）。外部心跳推送会被拦下，状态页只给登录了云吞的你看。
     en: |
-      Watch your sites and services over HTTP(s), ports, ping and DNS, and get alerted by email, Telegram, webhook and more when they go down.
+      Watch your sites and services over HTTP(s), ports, ping and DNS, and get alerted when they go down: an email notification is pre-created, so new monitors alert your Wonton chat by default; Telegram, webhook and more can be added as usual.
 
-      Open and use it straight away — no app sign-in: an administrator account is pre-created and the app's own login is off, because the page is only reachable through the Wonton gateway, which already authenticates you. External push heartbeats are blocked, and status pages are only visible to you through the gateway.
+      Open and use it straight away — no app sign-in: an administrator account is pre-created and the app's own login is off, because the page is only reachable through the Wonton gateway, which already authenticates you. Notification recipients can only be household members — an outside address fails to send (the app reports the failure). External push heartbeats are blocked, and status pages are only visible to you through the gateway.
   release_notes:
-    zh: 装好打开直接可用：不用选数据库、注册管理员，也不用记应用密码（网页只经云吞网关进来）。
-    en: Opens ready to use after install — no database picker, admin signup or app password (the page is only reachable through the Wonton gateway).
+    zh: 接上云吞的内部邮箱：装好即有一条预置的邮件通知（主机、发件人、收件人都已配好），新建监控默认把告警发进你的云吞私聊；收件人只能是家里人。
+    en: Hooks up the Wonton internal mailbox — an email notification ships pre-configured (host, sender and recipient all set), so new monitors alert your Wonton chat by default; recipients can only be household members.
   webui:
     service: kuma
     port: 3001
@@ -91,8 +97,14 @@ x-wonton:
     # 拨测要访问外网和局域网里的设备；通知渠道（Telegram、SMTP、Webhook）也得出网。
     # Checks reach the internet and LAN devices, and notification channels (Telegram, SMTP, webhook) need egress too.
     - network.egress
-    # 知道用户名：预建的管理员账号按注入的用户名建，登录时输入的就是它。
+    # 知道用户名和内部邮箱：管理员账号按注入的用户名预建，邮件通知发给注入的内部邮箱。
+    # Knows the username and internal mailbox: the admin account is pre-created from the injected
+    # username, and email alerts go to the injected internal mailbox.
     - owner.identity
+    # 发信：预置的邮件通知经核心的 SMTP 服务器把告警发进主人的云吞私聊。
+    # Sends mail: the pre-created email notification delivers alerts to the owner's Wonton chat
+    # through the core's SMTP server.
+    - notify
   secrets:
     # 预建管理员的登录密码：核心生成，升级和保留数据的重装都不变。
     admin_password:

@@ -3,7 +3,8 @@
 开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)。
 
 [Uptime Kuma](https://uptime.kuma.pet) 的云吞插件（应用许可证 MIT）：监控公网站点与局域网设备，通过应用自带的通知
-渠道告警。网页保留 Kuma 登录，同时受云吞网关保护；Push 心跳、公开状态页和其他插件网页监控的限制见清单 `about`。
+渠道告警。网页免登录直接用（管理员账号已预建，见下面的「账号和登录」），同时受云吞网关保护；Push 心跳、公开状态页和其他
+插件网页监控的限制见清单 `about`。
 
 ## 图标来源
 
@@ -41,6 +42,15 @@ docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' \
 
 登录后建议在“设置 → 安全”里改成自己的密码。密码忘了：按 Kuma 自己的办法重置（在宿主机进容器执行它的
 `npm run reset-password`）。
+
+## 通知和邮件
+
+装好即在 Uptime Kuma 的“设置 → 通知”里有一条预置的邮件通知 **Wonton**：SMTP 主机、端口、发件人用核心注入的值，
+收件人是你的内部邮箱（`<用户名>@wonton.internal`）。新建的监控默认勾上它，掉线/恢复的信会出现在你的云吞私聊里；
+已有的监控在监控的编辑页勾上它，或在通知设置里勾“对所有现有监控生效”。
+
+收件人只能是家里人：把收件人改成外部邮箱，发送时核心在 SMTP 阶段就拒收（550），Kuma 的通知会报发送失败。
+Telegram、Webhook 等其他渠道照常自己加。
 
 ## 仓库里有什么
 
