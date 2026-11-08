@@ -44,7 +44,7 @@ data_write() {
     s.on("connect", () => {
       s.emit("add", { type: "http", name: process.env.KUMA_MARKER,
         url: "http://127.0.0.1:3001/", interval: 120, retryInterval: 120, maxretries: 2,
-        accepted_statuscodes: ["200-299"] },
+        accepted_statuscodes: ["200-299"], conditions: [] },
         (res) => { clearTimeout(t); (res && res.ok) ? process.exit(0) : fail("add 被拒：" + JSON.stringify(res)); });
     });' "$marker")" || { echo "建监控项失败：$out"; return 1; }
   printf '%s' "$marker" >"$(marker_file)"
