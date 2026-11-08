@@ -3,11 +3,10 @@
 
 web_assert() { grep -qi 'uptime kuma'; }   # 标准输入：应用页面
 
-identity_check() { # 首页在没账号时就是首次注册页（/setup），断言这是注册页而不是错误页
-  local page
-  page="$(web_get / -H 'Accept: text/html')" || { echo "首页失败：$page"; return 1; }
-  grep -qiE 'setup|管理员|admin account|create' <<<"$page" || { echo "不是首次注册页：$(head -c 150 <<<"$page")"; return 1; }
-}
+# 身份：Kuma 的应用登录已关（管理员账号预建，网页只经云吞网关进来），应用里没有可断言的用户身份，
+# 主人能打开由 web_assert 和网关对匿名请求的 401 证明。
+export IDENTITY_NA=1
+export SMOKE_NOTE="Kuma 应用自己的登录已关（管理员账号预建），应用内没有用户身份可断言；主人会话能打开应用、网关拒绝匿名请求由网页项证明。"
 
 marker_file() { # SMOKE_STATE 在套件里是状态目录（e2e 传的是标记文件本身），标记放对应路径
   if [[ -d "$SMOKE_STATE" ]]; then printf '%s' "$SMOKE_STATE/kuma-marker"; else printf '%s' "${SMOKE_STATE}.marker"; fi
@@ -44,7 +43,8 @@ data_write() {
     s.on("connect_error", (e) => { clearTimeout(t); fail("connect_error: " + e.message); });
     s.on("connect", () => {
       s.emit("add", { type: "http", name: process.env.KUMA_MARKER,
-        url: "http://127.0.0.1:3001/", interval: 120, retryInterval: 120, maxretries: 2 },
+        url: "http://127.0.0.1:3001/", interval: 120, retryInterval: 120, maxretries: 2,
+        accepted_statuscodes: ["200-299"], expiry: 0 },
         (res) => { clearTimeout(t); (res && res.ok) ? process.exit(0) : fail("add 被拒：" + JSON.stringify(res)); });
     });' "$marker")" || { echo "建监控项失败：$out"; return 1; }
   printf '%s' "$marker" >"$(marker_file)"
