@@ -60,7 +60,8 @@ data_check() {
     const io = require("socket.io-client");
     const s = io("http://127.0.0.1:3001");
     const fail = (m) => { console.error(m); process.exit(1); };
-    const t = setTimeout(() => fail("socket 20 秒没连上"), 20000);
+    // 重装后 kuma 首次启动要做建库和初始化，socket 晚于容器 healthy 才收连接。
+    const t = setTimeout(() => fail("socket 60 秒没连上"), 60000);
     s.on("connect_error", (e) => { clearTimeout(t); fail("connect_error: " + e.message); });
     s.on("connect", () => {
       s.emit("getMonitorList", {}, (list) => {
