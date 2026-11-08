@@ -8,3 +8,66 @@ identity_check() { # 首页在没账号时就是首次注册页（/setup），�
   page="$(web_get / -H 'Accept: text/html')" || { echo "首页失败：$page"; return 1; }
   grep -qiE 'setup|管理员|admin account|create' <<<"$page" || { echo "不是首次注册页：$(head -c 150 <<<"$page")"; return 1; }
 }
+
+marker_file() { # SMOKE_STATE 在套件里是状态目录（e2e 传的是标记文件本身），标记放对应路径
+  if [[ -d "$SMOKE_STATE" ]]; then printf '%s' "$SMOKE_STATE/kuma-marker"; else printf '%s' "${SMOKE_STATE}.marker"; fi
+}
+
+_uma_container() { # 容器按核心打的标签找，不拼名字（钩子契约里没有 slug）
+  local inst="${SMOKE_INSTANCE:-}" args=(--filter label=wonton.plugin=fyi.kuma.uptime-kuma --filter label=wonton.service=kuma)
+  if [[ -z "$inst" && -n "${SMOKE_BASE:-}" ]]; then
+    inst="${SMOKE_BASE#http://}"; inst="${inst%%.*}"
+  fi
+  [[ -z "$inst" ]] || args+=(--filter "label=wonton.instance=${inst//-/}")
+  docker ps --format '{{.Names}}' "${args[@]}" | head -1
+}
+
+# 数据：监控项就是用户数据（SQLite 在插件数据目录，重装保留）。Kuma 只有 socket.io 一个接口，
+# 没有表单登录（管理员预建、应用登录已关，连接即认主人），所以用镜像自带的 node +
+# socket.io-client 在容器里连本机应用建监控项，重装后监控列表里还在。
+_kuma_node() { # <node 脚本> <标记>：容器内连 socket.io 跑一段脚本
+  local container="$1" script="$2" marker="$3"
+  docker exec -e KUMA_MARKER="$marker" "$container" node -e "$script"
+}
+
+data_write() {
+  local container marker out
+  [[ -n "${SMOKE_STATE:-}" ]] || { echo "SMOKE_STATE 没设"; return 1; }
+  container="$(_uma_container)"
+  [[ -n "$container" ]] || { echo "找不到 kuma 容器（wonton.instance 标签）"; return 1; }
+  marker="wonton-smoke-$(od -An -N4 -tx4 /dev/urandom | tr -d ' \n')"
+  out="$(_kuma_node "$container" '
+    const io = require("socket.io-client");
+    const s = io("http://127.0.0.1:3001");
+    const fail = (m) => { console.error(m); process.exit(1); };
+    const t = setTimeout(() => fail("socket 20 秒没连上"), 20000);
+    s.on("connect_error", (e) => { clearTimeout(t); fail("connect_error: " + e.message); });
+    s.on("connect", () => {
+      s.emit("add", { type: "http", name: process.env.KUMA_MARKER,
+        url: "http://127.0.0.1:3001/", interval: 120, retryInterval: 120, maxretries: 2 },
+        (res) => { clearTimeout(t); (res && res.ok) ? process.exit(0) : fail("add 被拒：" + JSON.stringify(res)); });
+    });' "$marker")" || { echo "建监控项失败：$out"; return 1; }
+  printf '%s' "$marker" >"$(marker_file)"
+}
+
+data_check() {
+  local container marker out
+  marker="$(cat "$(marker_file)" 2>/dev/null)" || { echo "没有 data_write 留下的标记"; return 1; }
+  [[ -n "$marker" ]] || { echo "标记是空的"; return 1; }
+  container="$(_uma_container)"
+  [[ -n "$container" ]] || { echo "找不到 kuma 容器（wonton.instance 标签）"; return 1; }
+  out="$(_kuma_node "$container" '
+    const io = require("socket.io-client");
+    const s = io("http://127.0.0.1:3001");
+    const fail = (m) => { console.error(m); process.exit(1); };
+    const t = setTimeout(() => fail("socket 20 秒没连上"), 20000);
+    s.on("connect_error", (e) => { clearTimeout(t); fail("connect_error: " + e.message); });
+    s.on("connect", () => {
+      s.emit("getMonitorList", {}, (list) => {
+        clearTimeout(t);
+        const names = Object.values(list || {}).map((m) => m.name);
+        process.exit(names.includes(process.env.KUMA_MARKER) ? 0 :
+          fail("监控列表里没有标记，现在是：" + names.join(", ")));
+      });
+    });' "$marker")" || { echo "重装后监控项不在了：$out"; return 1; }
+}
