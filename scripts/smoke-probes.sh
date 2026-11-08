@@ -39,8 +39,9 @@ data_write() {
     const io = require("socket.io-client");
     const s = io("http://127.0.0.1:3001");
     const fail = (m) => { console.error(m); process.exit(1); };
-    const t = setTimeout(() => fail("socket 20 秒没连上"), 20000);
-    s.on("connect_error", (e) => { clearTimeout(t); fail("connect_error: " + e.message); });
+    // 连接错误只记到 stderr，socket.io-client 自动重连；总超时才判失败。
+    const t = setTimeout(() => fail("socket 180 秒没连上"), 180000);
+    s.on("connect_error", (e) => console.error("connect_error: " + e.message));
     s.on("connect", () => {
       s.emit("add", { type: "http", name: process.env.KUMA_MARKER,
         url: "http://127.0.0.1:3001/", interval: 120, retryInterval: 120, maxretries: 2,
@@ -61,8 +62,10 @@ data_check() {
     const s = io("http://127.0.0.1:3001");
     const fail = (m) => { console.error(m); process.exit(1); };
     // 重装后 kuma 首次启动要做建库和初始化，socket 晚于容器 healthy 才收连接。
-    const t = setTimeout(() => fail("socket 60 秒没连上"), 60000);
-    s.on("connect_error", (e) => { clearTimeout(t); fail("connect_error: " + e.message); });
+    // socket.io-client 会自动重连：连接错误只记到 stderr，不退出；总超时才判失败。
+    // （重装后 kuma 首次启动要做建库和初始化，socket 晚于容器 healthy 才收连接。）
+    s.on("connect_error", (e) => console.error("connect_error: " + e.message));
+    const t = setTimeout(() => fail("socket 180 秒没连上"), 180000);
     s.on("connect", () => {
       s.emit("getMonitorList", {}, (list) => {
         clearTimeout(t);
