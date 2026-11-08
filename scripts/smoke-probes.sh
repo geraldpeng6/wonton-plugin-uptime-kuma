@@ -66,15 +66,21 @@ data_check() {
     const fail = (m) => { console.error(m); process.exit(1); };
     // 重装后 kuma 首次启动要做建库和初始化，socket 晚于容器 healthy 才收连接。
     // socket.io-client 会自动重连：连接错误只记到 stderr，不退出；总超时才判失败。
-    // （重装后 kuma 首次启动要做建库和初始化，socket 晚于容器 healthy 才收连接。）
     s.on("connect_error", (e) => console.error("connect_error: " + e.message));
-    const t = setTimeout(() => fail("socket 180 秒没连上"), 180000);
+    const t = setTimeout(() => fail("180 秒没等到 monitorList 推送"), 180000);
     s.on("connect", () => {
-      s.emit("getMonitorList", {}, (list) => {
-        clearTimeout(t);
-        const names = Object.values(list || {}).map((m) => m.name);
-        process.exit(names.includes(process.env.KUMA_MARKER) ? 0 :
-          fail("监控列表里没有标记，现在是：" + names.join(", ")));
+      console.error("socket 已连上");
+      // 2.5.9 的 getMonitorList handler 只收 ack 一个参数，emit 多传数据参数会把 ack 挤掉
+      // （服务端拿数据参数当 callback 调，TypeError，ack 永远不回，客户端无任何错误事件）。
+      s.emit("getMonitorList", (res) => {
+        if (!(res && res.ok)) console.error("getMonitorList 被拒：" + JSON.stringify(res));
       });
+    });
+    // ack 只回 {ok:true}；列表经 monitorList 事件推给已自动登录（disableAuth）的这个 socket。
+    s.on("monitorList", (list) => {
+      clearTimeout(t);
+      const names = Object.values(list || {}).map((m) => m.name);
+      if (names.includes(process.env.KUMA_MARKER)) process.exit(0);
+      fail("监控列表里没有标记，列表是：" + names.join(", "));
     });' "$marker")" || { echo "重装后监控项不在了：$out"; return 1; }
 }
