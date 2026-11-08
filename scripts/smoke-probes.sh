@@ -57,6 +57,7 @@ data_check() {
   [[ -n "$marker" ]] || { echo "标记是空的"; return 1; }
   container="$(_uma_container)"
   [[ -n "$container" ]] || { echo "找不到 kuma 容器（wonton.instance 标签）"; return 1; }
+  echo "data_check 容器：$container；HTTP 探测：$(docker exec "$container" node -e 'fetch("http://127.0.0.1:3001/").then(r=>console.log("HTTP",r.status)).catch(e=>console.log("ERR",e.message))' 2>&1 | tail -1)" >&2
   out="$(_kuma_node "$container" '
     const io = require("socket.io-client");
     const s = io("http://127.0.0.1:3001");
