@@ -38,7 +38,7 @@ LOG="$root/.wonton/smoke.log"
 instance="smoke$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 SMOKE_DIR="$copy"
 SMOKE_DEV_STATE="$copy/.wonton"
-# 数据标记是个空文件，和 npchy 上 e2e 冒烟的约定一致：插件钩子只当它是文件，不往里建目录。
+# 数据标记是个空文件（与 e2e 冒烟的约定一致）：插件钩子只当它是文件，不往里建目录。
 SMOKE_STATE="$work/data-marker"
 : >"$SMOKE_STATE"
 SMOKE_INSTANCE="$instance"
