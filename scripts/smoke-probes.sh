@@ -24,9 +24,11 @@ _uma_container() { # 容器按核心打的标签找，不拼名字（钩子契�
 # 数据：监控项就是用户数据（SQLite 在插件数据目录，重装保留）。Kuma 只有 socket.io 一个接口，
 # 没有表单登录（管理员预建、应用登录已关，连接即认主人），所以用镜像自带的 node +
 # socket.io-client 在容器里连本机应用建监控项，重装后监控列表里还在。
-_kuma_node() { # <node 脚本> <标记>：容器内连 socket.io 跑一段脚本
+_kuma_node() { # <node 脚本> <标记>：容器内连 socket.io 跑一段脚本；清掉代理变量，127.0.0.1 不经 egress
   local container="$1" script="$2" marker="$3"
-  docker exec -e KUMA_MARKER="$marker" "$container" node -e "$script"
+  docker exec -e KUMA_MARKER="$marker" -e HTTP_PROXY= -e HTTPS_PROXY= -e http_proxy= -e https_proxy= \
+    -e ALL_PROXY= -e all_proxy= -e NO_PROXY=127.0.0.1,localhost -e no_proxy=127.0.0.1,localhost \
+    "$container" node -e "$script"
 }
 
 data_write() {
