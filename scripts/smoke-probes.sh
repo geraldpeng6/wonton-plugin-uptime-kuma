@@ -216,16 +216,17 @@ extra_check() { # 邮件专项：真实发一封测试信，核对核心投递�
   [[ -n "$container" ]] || { echo "找不到 kuma 容器（wonton.instance 标签）"; return 1; }
 
   # 测试信（应用设置页的“测试”走同一个事件，主题固定“Wonton Testing”）：预置通知的原样配置。
-  # 不填用户名密码——上游 smtp.js 只在两者非空时才发 AUTH。核心亚秒取走信件，Mailpit
-  # 中间态抓不到：先记发送时刻，发完等主人 Wonton 私聊里的投递事件，再核对没有滞留。
-  sent_at="$(date +%s%3N)"
-  out="$(docker exec -e KUMA_NOTIFICATION="$(
-      jq -cn --arg h "$want_host" --arg p "$want_port" --arg f "$want_from" --arg t "$want_to" \
-        '{name:"Wonton",type:"smtp",smtpHost:$h,smtpPort:($p|tonumber),smtpSecure:false,
-          smtpIgnoreSTARTTLS:true,smtpFrom:$f,smtpTo:$t}')" \
-    -e HTTP_PROXY= -e HTTPS_PROXY= -e http_proxy= -e https_proxy= \
-    -e ALL_PROXY= -e all_proxy= -e NO_PROXY=127.0.0.1,localhost -e no_proxy=127.0.0.1,localhost \
-    "$container" node -e '
+  # 不填用户名密码——上游 smtp.js 只在两者非空时才发 AUTH。核心的收信事件连接断开重连期间
+  # 受理的信会丢（SMTP 250 但不投递、Mailpit 也没滞留，见底座的问题）：第一次等 60 秒没到
+  # 就再发一次，第二次给足 5 分钟。
+  _kuma_send() { # <收件地址>：用应用设置页同款事件发测试信，输出应用响应
+    docker exec -e KUMA_NOTIFICATION="$(
+        jq -cn --arg h "$want_host" --arg p "$want_port" --arg f "$want_from" --arg t "$1" \
+          '{name:"Wonton",type:"smtp",smtpHost:$h,smtpPort:($p|tonumber),smtpSecure:false,
+            smtpIgnoreSTARTTLS:true,smtpFrom:$f,smtpTo:$t}')" \
+      -e HTTP_PROXY= -e HTTPS_PROXY= -e http_proxy= -e https_proxy= \
+      -e ALL_PROXY= -e all_proxy= -e NO_PROXY=127.0.0.1,localhost -e no_proxy=127.0.0.1,localhost \
+      "$container" node -e '
     const io = require("socket.io-client");
     const s = io("http://127.0.0.1:3001");
     const fail = (m) => { console.error(m); process.exit(1); };
@@ -236,18 +237,24 @@ extra_check() { # 邮件专项：真实发一封测试信，核对核心投递�
         clearTimeout(t); console.log(JSON.stringify(res));
         process.exit(res && res.ok ? 0 : 1);
       });
-    });' 2>&1)" || { echo "测试信没发出去：$out"; return 1; }
-  grep -q 'Sent Successfully' <<<"$out" || { echo "应用没报发送成功：$(head -c 300 <<<"$out")"; return 1; }
-  echo "测试信应用报发送成功（$want_from → $want_to）"
-  # 投递经核心转发，实测 1-3 分钟级别；60 秒太紧，和其他插件的邮件等待对齐放宽到 5 分钟。
-  for _ in {1..60}; do
-    sleep 5
-    delivered="$(_delivered_after fyi.kuma.uptime-kuma "$sent_at")" ||
-      { echo "读投递事件失败：$(head -c 200 <<<"$delivered")"; return 1; }
+    });' 2>&1
+  }
+  delivered=0
+  for attempt in 1 2; do
+    sent_at="$(date +%s%3N)"
+    out="$(_kuma_send "$want_to")" || { echo "测试信没发出去：$out"; return 1; }
+    grep -q 'Sent Successfully' <<<"$out" || { echo "应用没报发送成功：$(head -c 300 <<<"$out")"; return 1; }
+    echo "测试信应用报发送成功（$want_from → $want_to，第 $attempt 次）"
+    for _ in $( [[ "$attempt" == 1 ]] && echo {1..12} || echo {1..60} ); do
+      sleep 5
+      delivered="$(_delivered_after fyi.kuma.uptime-kuma "$sent_at")" ||
+        { echo "读投递事件失败：$(head -c 200 <<<"$delivered")"; return 1; }
+      [[ "$delivered" != 0 ]] && break
+    done
     [[ "$delivered" != 0 ]] && break
   done
   [[ "$delivered" != 0 ]] || {
-    echo "等了 300 秒没看到测试信投进主人的 Wonton 私聊；邮件去向："
+    echo "两次发送都没看到测试信投进主人的 Wonton 私聊；邮件去向："
     mailpit_messages | jq -r '.messages[] | "\(.From.Address) → \(.To | map(.Address) | join(","))｜\(.Subject)"' 2>/dev/null | head -5 || true
     echo "核心日志里 mail 相关的行："
     docker logs "$(core_container)" 2>&1 | grep -iE "mail|smtp|mailbox" | tail -8 || true
