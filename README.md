@@ -1,6 +1,6 @@
 # Uptime Kuma 云吞插件
 
-开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)。
+开发流程见[插件开发指南](https://github.com/wontonapp/wonton-docs/blob/main/develop.md)。
 
 [Uptime Kuma](https://uptime.kuma.pet) 的云吞插件（应用许可证 MIT）：监控公网站点与局域网设备，通过应用自带的通知
 渠道告警。网页免登录直接用（管理员账号已预建，见下面的「账号和登录」），同时受云吞网关保护；Push 心跳、公开状态页和其他
