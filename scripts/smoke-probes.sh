@@ -246,7 +246,13 @@ extra_check() { # 邮件专项：真实发一封测试信，核对核心投递�
       { echo "读投递事件失败：$(head -c 200 <<<"$delivered")"; return 1; }
     [[ "$delivered" != 0 ]] && break
   done
-  [[ "$delivered" != 0 ]] || { echo "等了 300 秒没看到测试信投进主人的 Wonton 私聊"; return 1; }
+  [[ "$delivered" != 0 ]] || {
+    echo "等了 300 秒没看到测试信投进主人的 Wonton 私聊；邮件去向："
+    mailpit_messages | jq -r '.messages[] | "\(.From.Address) → \(.To | map(.Address) | join(","))｜\(.Subject)"' 2>/dev/null | head -5 || true
+    echo "核心日志里 mail 相关的行："
+    docker logs "$(core_container)" 2>&1 | grep -iE "mail|smtp|mailbox" | tail -8 || true
+    return 1
+  }
   mails="$(mailpit_messages | jq -r '[.messages[] | select(.Subject == "Wonton Testing")] | length' 2>/dev/null || echo 0)"
   [[ "$mails" == 0 ]] || { echo "信投进了私聊，但 Mailpit 里还有滞留（核心没删？）"; return 1; }
   echo "测试信已投进主人的 Wonton 私聊，Mailpit 没有滞留"
