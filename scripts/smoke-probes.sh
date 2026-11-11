@@ -239,13 +239,14 @@ extra_check() { # 邮件专项：真实发一封测试信，核对核心投递�
     });' 2>&1)" || { echo "测试信没发出去：$out"; return 1; }
   grep -q 'Sent Successfully' <<<"$out" || { echo "应用没报发送成功：$(head -c 300 <<<"$out")"; return 1; }
   echo "测试信应用报发送成功（$want_from → $want_to）"
-  for _ in {1..12}; do
+  # 投递经核心转发，实测 1-3 分钟级别；60 秒太紧，和其他插件的邮件等待对齐放宽到 5 分钟。
+  for _ in {1..60}; do
     sleep 5
     delivered="$(_delivered_after fyi.kuma.uptime-kuma "$sent_at")" ||
       { echo "读投递事件失败：$(head -c 200 <<<"$delivered")"; return 1; }
     [[ "$delivered" != 0 ]] && break
   done
-  [[ "$delivered" != 0 ]] || { echo "等了 60 秒没看到测试信投进主人的 Wonton 私聊"; return 1; }
+  [[ "$delivered" != 0 ]] || { echo "等了 300 秒没看到测试信投进主人的 Wonton 私聊"; return 1; }
   mails="$(mailpit_messages | jq -r '[.messages[] | select(.Subject == "Wonton Testing")] | length' 2>/dev/null || echo 0)"
   [[ "$mails" == 0 ]] || { echo "信投进了私聊，但 Mailpit 里还有滞留（核心没删？）"; return 1; }
   echo "测试信已投进主人的 Wonton 私聊，Mailpit 没有滞留"
