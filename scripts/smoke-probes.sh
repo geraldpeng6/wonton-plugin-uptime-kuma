@@ -151,9 +151,17 @@ core_container() { # 核心容器：和插件容器同一个 compose 项目（Ma
     grep -E -- '--core$' | head -1
 }
 
+mailpit_auth() { # Mailpit API 的 Basic 认证（core:<密钥>，密钥在核心数据目录，见核心的 mailbox 组件）
+  local core pwd
+  core="$(core_container)" || return 1
+  pwd="$(docker exec "$core" sh -c 'cat "$WONTON_DATA_DIR/core/mailpit/api-password"')" ||
+    { echo "读不到 Mailpit API 密钥"; return 1; }
+  printf 'core:%s' "$pwd"
+}
+
 mailpit_messages() { # 经核心的网络栈读 Mailpit 收件箱 API（SMTP 25/HTTP 8025 都不发布到宿主）
   docker run --rm --network "container:$(core_container)" curlimages/curl:8.23.0 --noproxy '*' -s \
-    "http://mailpit.wonton.internal:8025/api/v1/messages?limit=50"
+    -u "$(mailpit_auth)" "http://mailpit.wonton.internal:8025/api/v1/messages?limit=50"
 }
 
 extra_check() { # 邮件专项：真实发一封测试信，核对核心投递；再验证外部收件人被 550 拒收
