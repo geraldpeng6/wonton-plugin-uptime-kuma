@@ -164,8 +164,25 @@ mailpit_messages() { # 经核心的网络栈读 Mailpit 收件箱 API（SMTP 25/
     -u "$(mailpit_auth)" "http://mailpit.wonton.internal:8025/api/v1/messages?limit=50"
 }
 
+wonton_chat_events() { # <条数>：核心投递事件的房间最近消息。核心实测亚秒取走信件（投完即删），
+  # 在 Mailpit 里几乎抓不到中间态，投进主人 Wonton 私聊的房间事件才是权威证据。
+  local mu room adm
+  mu="$(docker exec "$(core_container)" printenv WONTON_MATRIX_URL)"
+  room="$(docker exec "$(core_container)" sh -c 'cat "$WONTON_DATA_DIR/core/matrix-notice-room"')" ||
+    { echo "读不到通知房间 id"; return 1; }
+  adm="$(docker exec "$(core_container)" sh -c 'cat "$WONTON_DATA_DIR/core/matrix-admin-token"')" ||
+    { echo "读不到 Matrix 管理令牌"; return 1; }
+  docker run --rm --network "container:$(core_container)" curlimages/curl:8.23.0 --noproxy '*' -s \
+    -H "Authorization: Bearer $adm" "$mu/_matrix/client/v3/rooms/$room/messages?limit=$1&dir=b"
+}
+
+_delivered_after() { # <插件 id> <发送时刻毫秒>：发送之后投进主人 Wonton 私聊的新邮件事件数
+  wonton_chat_events 30 | jq -r --arg p "$1" --argjson ts "$2" '
+    [.chunk[] | select(.origin_server_ts > $ts and .content["app.wonton.plugin_mail"].plugin_id == $p)] | length'
+}
+
 extra_check() { # 邮件专项：真实发一封测试信，核对核心投递；再验证外部收件人被 550 拒收
-  local want_host want_port want_from want_to out mails delivered
+  local want_host want_port want_from want_to out mails delivered sent_at
   want_host="$(kuma_env_value WONTON_SMTP_HOST)"
   want_port="$(kuma_env_value WONTON_SMTP_PORT)"
   want_from="$(kuma_env_value WONTON_MAIL_FROM)"
@@ -183,7 +200,9 @@ extra_check() { # 邮件专项：真实发一封测试信，核对核心投递�
   [[ -n "$container" ]] || { echo "找不到 kuma 容器（wonton.instance 标签）"; return 1; }
 
   # 测试信（应用设置页的“测试”走同一个事件，主题固定“Wonton Testing”）：预置通知的原样配置。
-  # 不填用户名密码——上游 smtp.js 只在两者非空时才发 AUTH。
+  # 不填用户名密码——上游 smtp.js 只在两者非空时才发 AUTH。核心亚秒取走信件，Mailpit
+  # 中间态抓不到：先记发送时刻，发完等主人 Wonton 私聊里的投递事件，再核对没有滞留。
+  sent_at="$(date +%s%3N)"
   out="$(docker exec -e KUMA_NOTIFICATION="$(
       jq -cn --arg h "$want_host" --arg p "$want_port" --arg f "$want_from" --arg t "$want_to" \
         '{name:"Wonton",type:"smtp",smtpHost:$h,smtpPort:($p|tonumber),smtpSecure:false,
@@ -204,17 +223,16 @@ extra_check() { # 邮件专项：真实发一封测试信，核对核心投递�
     });' 2>&1)" || { echo "测试信没发出去：$out"; return 1; }
   grep -q 'Sent Successfully' <<<"$out" || { echo "应用没报发送成功：$(head -c 300 <<<"$out")"; return 1; }
   echo "测试信应用报发送成功（$want_from → $want_to）"
-
-  # 核心订阅 Mailpit、把信投进收件人的 Wonton 私聊后从 Mailpit 删掉：轮询等它取走，取不走才算失败。
-  delivered=1
   for _ in {1..12}; do
     sleep 5
-    mails="$(mailpit_messages)" || { echo "读 Mailpit 失败：$(head -c 200 <<<"$mails")"; return 1; }
-    delivered="$(jq -r '[.messages[] | select(.Subject == "Wonton Testing")] | length' <<<"$mails" 2>/dev/null)"
-    [[ "$delivered" == 0 ]] && { delivered=0; break; }
+    delivered="$(_delivered_after fyi.kuma.uptime-kuma "$sent_at")" ||
+      { echo "读投递事件失败：$(head -c 200 <<<"$delivered")"; return 1; }
+    [[ "$delivered" != 0 ]] && break
   done
-  [[ "$delivered" == 0 ]] || { echo "等了 60 秒测试信还在 Mailpit 里没被投递"; return 1; }
-  echo "测试信已被核心投递（Mailpit 里删了）"
+  [[ "$delivered" != 0 ]] || { echo "等了 60 秒没看到测试信投进主人的 Wonton 私聊"; return 1; }
+  mails="$(mailpit_messages | jq -r '[.messages[] | select(.Subject == "Wonton Testing")] | length' 2>/dev/null || echo 0)"
+  [[ "$mails" == 0 ]] || { echo "信投进了私聊，但 Mailpit 里还有滞留（核心没删？）"; return 1; }
+  echo "测试信已投进主人的 Wonton 私聊，Mailpit 没有滞留"
 
   # 外部收件人：同一配置发给外部地址，应用要报发送失败（核心在 SMTP 阶段 550 拒收）
   out="$(docker exec -e KUMA_NOTIFICATION="$(
