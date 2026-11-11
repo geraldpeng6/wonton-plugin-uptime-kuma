@@ -64,8 +64,8 @@ x-wonton:
   id: fyi.kuma.uptime-kuma
   version: 0.3.0
   kind: app
-  title: { en: Uptime Kuma }
-  description: { zh: 盯着你的网站和服务，掉线时提醒你, en: Watch your sites and services and get alerted when they go down }
+  title: { zh: 掉线提醒（Uptime Kuma）, en: Downtime Alerts (Uptime Kuma) }
+  description: { zh: 像给网站和服务请了个值班员：定时看看通不通，一掉线马上在云吞私聊里提醒你。, en: "A watchman for your websites and services: it checks on them regularly and messages you in Wonton the moment one goes down." }
   icon: icon.png
   notices: [NOTICE]
   screenshots: [screenshots/monitors.png, screenshots/add-monitor.png, screenshots/monitor-detail.png, screenshots/notifications.png]
