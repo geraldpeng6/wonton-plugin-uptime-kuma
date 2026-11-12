@@ -8,10 +8,6 @@ web_assert() { grep -qi 'uptime kuma'; }   # 标准输入：应用页面
 export IDENTITY_NA=1
 export SMOKE_NOTE="Kuma 应用自己的登录已关（管理员账号预建），应用内没有用户身份可断言；主人会话能打开应用、网关拒绝匿名请求由网页项证明。"
 
-marker_file() { # SMOKE_STATE 在套件里是状态目录（e2e 传的是标记文件本身），标记放对应路径
-  if [[ -d "$SMOKE_STATE" ]]; then printf '%s' "$SMOKE_STATE/kuma-marker"; else printf '%s' "${SMOKE_STATE}.marker"; fi
-}
-
 _uma_container() { # 容器名按核心规则拼（wonton-<实例>--fyi-kuma-uptime-kuma--kuma），查不到再按标签兜底
   local inst="${SMOKE_INSTANCE:-}"
   if [[ -z "$inst" && -n "${SMOKE_BASE:-}" ]]; then
@@ -55,12 +51,12 @@ data_write() {
         accepted_statuscodes: ["200-299"], conditions: [] },
         (res) => { clearTimeout(t); (res && res.ok) ? process.exit(0) : fail("add 被拒：" + JSON.stringify(res)); });
     });' "$marker")" || { echo "建监控项失败：$out"; return 1; }
-  printf '%s' "$marker" >"$(marker_file)"
+  printf '%s' "$marker" >"$SMOKE_STATE"
 }
 
 data_check() {
   local container marker out
-  marker="$(cat "$(marker_file)" 2>/dev/null)" || { echo "没有 data_write 留下的标记"; return 1; }
+  marker="$(cat "$SMOKE_STATE" 2>/dev/null)" || { echo "没有 data_write 留下的标记"; return 1; }
   [[ -n "$marker" ]] || { echo "标记是空的"; return 1; }
   container="$(_uma_container)"
   [[ -n "$container" ]] || { echo "找不到 kuma 容器（wonton.instance 标签）"; return 1; }
@@ -148,47 +144,30 @@ _uma_notification_assert() { # 预置的 Wonton 邮件通知恰一条，值都�
   echo "预置邮件通知在（$want_host:$want_port，from $want_from，to $want_to）"
 }
 
-core_container() { # 核心容器：名字按核心规则拼（wonton-<实例>--core），兜底走 compose 项目标签
-  local inst="${SMOKE_INSTANCE:-}"
-  if [[ -z "$inst" && -n "${SMOKE_BASE:-}" ]]; then
-    inst="${SMOKE_BASE#http://}"; inst="${inst%%.*}"
-  fi
-  if [[ -n "$inst" ]]; then
-    local name="wonton-${inst}--core"
-    docker inspect "$name" >/dev/null 2>&1 && { printf '%s\n' "$name"; return 0; }
-  fi
-  local project
-  project="$(docker inspect "$(_uma_container)" --format '{{index .Config.Labels "com.docker.compose.project"}}' 2>/dev/null)" ||
-    { echo "读不到插件容器的 compose 项目"; return 1; }
-  [[ -n "$project" ]] || { echo "读不到插件容器的 compose 项目"; return 1; }
-  docker ps --format '{{.Names}}' --filter "label=com.docker.compose.project=$project" |
-    grep -E -- '--core$' | head -1
-}
-
 mailpit_auth() { # Mailpit API 的 Basic 认证（core:<密钥>，密钥在核心数据目录，见核心的 mailbox 组件）
-  local core pwd
-  core="$(core_container)" || return 1
-  pwd="$(docker exec "$core" sh -c 'cat "$WONTON_DATA_DIR/core/mailpit/api-password"')" ||
+  local pwd
+  # shellcheck disable=SC2153 # SMOKE_CORE 由套件备好，不在本文件赋值
+  pwd="$(docker exec "$SMOKE_CORE" sh -c 'cat "$WONTON_DATA_DIR/core/mailpit/api-password"')" ||
     { echo "读不到 Mailpit API 密钥"; return 1; }
   printf 'core:%s' "$pwd"
 }
 
 mailpit_messages() { # 经核心的网络栈读 Mailpit 收件箱 API（SMTP 25/HTTP 8025 都不发布到宿主）
-  docker run --rm --network "container:$(core_container)" curlimages/curl:8.23.0 --noproxy '*' -s \
+  docker run --rm --network "container:$SMOKE_CORE" curlimages/curl:8.23.0 --noproxy '*' -s \
     -u "$(mailpit_auth)" "http://mailpit.wonton.internal:8025/api/v1/messages?limit=50"
 }
 
 wonton_chat_events() { # <条数>：核心投递事件的房间最近消息。核心实测亚秒取走信件（投完即删），
   # 在 Mailpit 里几乎抓不到中间态，投进主人 Wonton 私聊的房间事件才是权威证据。
   local mu room adm
-  mu="$(docker exec "$(core_container)" printenv WONTON_MATRIX_URL)" || { echo "读不到 Matrix 地址"; return 1; }
+  mu="$(docker exec "$SMOKE_CORE" printenv WONTON_MATRIX_URL)" || { echo "读不到 Matrix 地址"; return 1; }
   # 通知房间是第一封信投递时才建的：一封信都还没投过时读不到文件，按 0 条投递算
   # （_delivered_after 的轮询会等它出现），不当错误。
-  room="$(docker exec "$(core_container)" sh -c 'cat "$WONTON_DATA_DIR/core/matrix-notice-room"' 2>/dev/null)" ||
+  room="$(docker exec "$SMOKE_CORE" sh -c 'cat "$WONTON_DATA_DIR/core/matrix-notice-room"' 2>/dev/null)" ||
     { echo '{"chunk":[]}'; return 0; }
-  adm="$(docker exec "$(core_container)" sh -c 'cat "$WONTON_DATA_DIR/core/matrix-admin-token"' 2>/dev/null)" ||
+  adm="$(docker exec "$SMOKE_CORE" sh -c 'cat "$WONTON_DATA_DIR/core/matrix-admin-token"' 2>/dev/null)" ||
     { echo "读不到 Matrix 管理令牌"; return 1; }
-  docker run --rm --network "container:$(core_container)" curlimages/curl:8.23.0 --noproxy '*' -s \
+  docker run --rm --network "container:$SMOKE_CORE" curlimages/curl:8.23.0 --noproxy '*' -s \
     -H "Authorization: Bearer $adm" "$mu/_matrix/client/v3/rooms/$room/messages?limit=$1&dir=b"
 }
 
@@ -257,7 +236,7 @@ extra_check() { # 邮件专项：真实发一封测试信，核对核心投递�
     echo "两次发送都没看到测试信投进主人的 Wonton 私聊；邮件去向："
     mailpit_messages | jq -r '.messages[] | "\(.From.Address) → \(.To | map(.Address) | join(","))｜\(.Subject)"' 2>/dev/null | head -5 || true
     echo "核心日志里 mail 相关的行："
-    docker logs "$(core_container)" 2>&1 | grep -iE "mail|smtp|mailbox" | tail -8 || true
+    docker logs "$SMOKE_CORE" 2>&1 | grep -iE "mail|smtp|mailbox" | tail -8 || true
     return 1
   }
   mails="$(mailpit_messages | jq -r '[.messages[] | select(.Subject == "Wonton Testing")] | length' 2>/dev/null || echo 0)"
